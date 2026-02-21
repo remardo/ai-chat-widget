@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 import os
 
 from .config import settings, validate_settings
@@ -52,9 +53,15 @@ app.include_router(chat.router)
 
 
 # Serve widget files
-widget_path = os.path.join(os.path.dirname(__file__), "../../widget")
-if os.path.exists(widget_path):
-    app.mount("/widget", StaticFiles(directory=widget_path), name="widget")
+_app_dir = Path(__file__).resolve().parent  # backend/app locally, /app/app in Docker
+_widget_candidates = [
+    _app_dir.parent / "widget",       # /app/widget in Docker
+    _app_dir.parent.parent / "widget" # <repo>/widget locally
+]
+for candidate in _widget_candidates:
+    if candidate.exists():
+        app.mount("/widget", StaticFiles(directory=str(candidate)), name="widget")
+        break
 
 
 @app.get("/")
