@@ -1,6 +1,8 @@
 """Chat API endpoints."""
 
+import asyncio
 import logging
+import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Optional, List
@@ -8,10 +10,52 @@ from ..services.storage.base import Message
 from ..services.ai_service import ai_service
 from ..services.telegram import telegram_service
 from ..services.security import security_service
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Manager takeover mode: when active for a session, bot does not answer as AI.
+manager_takeover_sessions = set()
+
+# Prevent duplicate lead notifications per session.
+lead_notified_sessions = set()
+
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\-\s\(\)]{8,}\d)")
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+
+UNCERTAIN_REPLY_PATTERNS = [
+    "у меня нет информации",
+    "у меня нет доступа",
+    "не могу ответить",
+    "не знаю",
+    "не располагаю информацией",
+]
+
+
+def _extract_lead(text: str) -> Dict[str, List[str]]:
+    phones = [p.strip() for p in PHONE_RE.findall(text or "")]
+    emails = [e.strip() for e in EMAIL_RE.findall(text or "")]
+    return {"phones": phones, "emails": emails}
+
+
+def _needs_manager_handoff(ai_reply: str) -> bool:
+    reply = (ai_reply or "").lower()
+    return any(pattern in reply for pattern in UNCERTAIN_REPLY_PATTERNS)
+
+
+def _run_in_background(coro, label: str):
+    """Fire-and-forget helper for non-critical side effects."""
+    task = asyncio.create_task(coro)
+
+    def _done(t: asyncio.Task):
+        try:
+            t.result()
+        except Exception as e:
+            logger.warning(f"Background task failed ({label}): {e}")
+
+    task.add_done_callback(_done)
 
 
 class PageContext(BaseModel):
@@ -40,6 +84,7 @@ class ChatResponse(BaseModel):
     session_id: str
     blocked: bool = False
     attack_detected: Optional[str] = None
+    manager_handoff: bool = False
 
 
 @router.post("/message", response_model=ChatResponse)
@@ -158,39 +203,45 @@ async def send_message(request: ChatRequest):
     if is_escalation:
         print(f"🚨 Escalation detected: {request.message[:50]}...")
         try:
-            result = await telegram_service.send_escalation(
-                reason="Пользователь запрашивает помощь или сообщает о проблеме",
-                conversation_summary=request.message[:300],
-                session_id=request.session_id,
-                page_url=page_url,
+            _run_in_background(
+                telegram_service.send_escalation(
+                    reason="Пользователь запрашивает помощь или сообщает о проблеме",
+                    conversation_summary=request.message[:300],
+                    session_id=request.session_id,
+                    page_url=page_url,
+                ),
+                "escalation_keywords",
             )
-            print(f"Telegram escalation result: {result}")
         except Exception as e:
             print(f"Telegram escalation ERROR: {e}")
 
     elif is_negative:
         print(f"😞 Negative feedback detected: {request.message[:50]}...")
         try:
-            result = await telegram_service.send_feedback(
-                text=request.message[:300],
-                sentiment="negative",
-                session_id=request.session_id,
-                page_url=page_url,
+            _run_in_background(
+                telegram_service.send_feedback(
+                    text=request.message[:300],
+                    sentiment="negative",
+                    session_id=request.session_id,
+                    page_url=page_url,
+                ),
+                "negative_feedback",
             )
-            print(f"Telegram negative feedback result: {result}")
         except Exception as e:
             print(f"Telegram negative feedback ERROR: {e}")
 
     elif is_positive:
         print(f"😊 Positive feedback detected: {request.message[:50]}...")
         try:
-            result = await telegram_service.send_feedback(
-                text=request.message[:300],
-                sentiment="positive",
-                session_id=request.session_id,
-                page_url=page_url,
+            _run_in_background(
+                telegram_service.send_feedback(
+                    text=request.message[:300],
+                    sentiment="positive",
+                    session_id=request.session_id,
+                    page_url=page_url,
+                ),
+                "positive_feedback",
             )
-            print(f"Telegram positive feedback result: {result}")
         except Exception as e:
             print(f"Telegram positive feedback ERROR: {e}")
 
@@ -209,12 +260,65 @@ async def send_message(request: ChatRequest):
         )
         await storage.save_message(user_message)
 
+        # Lead capture from user message (phone/email)
+        lead = _extract_lead(request.message)
+        if request.session_id not in lead_notified_sessions and (lead["phones"] or lead["emails"]):
+            lead_parts = []
+            if lead["phones"]:
+                lead_parts.append("Телефон: " + ", ".join(lead["phones"]))
+            if lead["emails"]:
+                lead_parts.append("Email: " + ", ".join(lead["emails"]))
+            lead_parts.append(f"Сообщение: {request.message[:500]}")
+
+            _run_in_background(
+                telegram_service.send_lead(
+                    lead_text="\n".join(lead_parts),
+                    session_id=request.session_id,
+                    page_url=page_url,
+                    user_email=lead["emails"][0] if lead["emails"] else None,
+                ),
+                "lead_capture",
+            )
+            lead_notified_sessions.add(request.session_id)
+
+        # If manager takeover is active, skip AI and wait for manager response.
+        if request.session_id in manager_takeover_sessions:
+            manager_reply = "Подключаю менеджера. Он ответит вам в этом чате в ближайшее время."
+            _run_in_background(
+                telegram_service.send_alert(
+                    message=f"Новое сообщение в takeover-сессии:\n\n{request.message[:700]}",
+                    alert_type="info",
+                    session_id=request.session_id,
+                    page_url=page_url,
+                ),
+                "takeover_new_user_message",
+            )
+
+            if settings.TELEGRAM_TRANSCRIPT_ENABLED:
+                _run_in_background(
+                    telegram_service.send_chat_transcript_turn(
+                        session_id=request.session_id,
+                        page_url=page_url,
+                        user_message=request.message,
+                        assistant_message=manager_reply,
+                    ),
+                    "takeover_transcript_turn",
+                )
+
+            return ChatResponse(
+                reply=manager_reply,
+                session_id=request.session_id,
+                manager_handoff=True,
+            )
+
         # Load conversation history
         history = await storage.get_messages(request.session_id, limit=20)
 
-        # Build system prompt with page context
+        # Build system prompt with retrieved knowledge context
+        knowledge_context = knowledge_base.get_context_for_query(request.message)
         system_prompt = ai_service.build_system_prompt(
-            page_context=page_context_dict, knowledge_base=knowledge_base.get_content()
+            page_context=page_context_dict,
+            knowledge_base=knowledge_context,
         )
 
         # Prepare messages for AI
@@ -233,7 +337,37 @@ async def send_message(request: ChatRequest):
         )
         await storage.save_message(assistant_message)
 
-        return ChatResponse(reply=ai_reply, session_id=request.session_id)
+        if settings.TELEGRAM_TRANSCRIPT_ENABLED:
+            _run_in_background(
+                telegram_service.send_chat_transcript_turn(
+                    session_id=request.session_id,
+                    page_url=page_url,
+                    user_message=request.message,
+                    assistant_message=ai_reply,
+                ),
+                "chat_transcript_turn",
+            )
+
+        # Auto handoff if assistant signals uncertainty
+        manager_handoff = False
+        if _needs_manager_handoff(ai_reply):
+            manager_handoff = True
+            manager_takeover_sessions.add(request.session_id)
+            _run_in_background(
+                telegram_service.send_escalation(
+                    reason="Бот неуверен в ответе / вне компетенции. Нужен менеджер.",
+                    conversation_summary=f"User: {request.message[:500]}\nAssistant: {ai_reply[:500]}",
+                    session_id=request.session_id,
+                    page_url=page_url,
+                ),
+                "auto_handoff_escalation",
+            )
+
+        return ChatResponse(
+            reply=ai_reply,
+            session_id=request.session_id,
+            manager_handoff=manager_handoff,
+        )
 
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
@@ -291,6 +425,64 @@ async def get_history(session_id: str, limit: int = 50):
                 {"role": msg.role, "content": msg.content, "timestamp": msg.timestamp.isoformat()} for msg in messages
             ],
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ManagerTakeoverRequest(BaseModel):
+    """Manager takeover toggle request."""
+
+    session_id: str
+
+
+class ManagerReplyRequest(BaseModel):
+    """Manual manager reply into chat history."""
+
+    session_id: str
+    message: str
+
+
+@router.post("/manager/takeover")
+async def manager_takeover(req: ManagerTakeoverRequest):
+    """Enable manager takeover for a session."""
+    manager_takeover_sessions.add(req.session_id)
+    return {"session_id": req.session_id, "takeover": True}
+
+
+@router.post("/manager/release")
+async def manager_release(req: ManagerTakeoverRequest):
+    """Disable manager takeover for a session."""
+    manager_takeover_sessions.discard(req.session_id)
+    return {"session_id": req.session_id, "takeover": False}
+
+
+@router.get("/manager/takeover")
+async def manager_takeover_list():
+    """List sessions where manager takeover is active."""
+    return {"sessions": sorted(manager_takeover_sessions)}
+
+
+@router.post("/manager/reply")
+async def manager_reply(req: ManagerReplyRequest):
+    """Inject manager response into chat as assistant message."""
+    from ..main import storage
+
+    try:
+        manager_message = Message(
+            session_id=req.session_id,
+            role="assistant",
+            content=f"Менеджер: {req.message}",
+            page_context={},
+        )
+        await storage.save_message(manager_message)
+
+        await telegram_service.send_alert(
+            message=f"Менеджер ответил клиенту:\n\n{req.message[:700]}",
+            alert_type="info",
+            session_id=req.session_id,
+        )
+
+        return {"message": "Manager reply saved", "session_id": req.session_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

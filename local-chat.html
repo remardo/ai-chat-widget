@@ -33,10 +33,19 @@
   <main class="wrap">
     <h1>Тест локального AI Chat Widget</h1>
     <p>Если backend запущен на <code>http://127.0.0.1:8080</code>, кнопка чата появится справа снизу.</p>
+    <p>Эта страница очищает chat session в <code>localStorage</code> при каждой загрузке для «чистого» теста знаний.</p>
   </main>
 
+  <script>
+    // Keep this only on local test page: force fresh chat session every reload.
+    localStorage.removeItem("ai_chat_session_id");
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith("ai_chat_history_"))
+      .forEach((k) => localStorage.removeItem(k));
+  </script>
+
   <script
-    src="http://127.0.0.1:8080/widget/widget.js?v=3"
+    src="http://127.0.0.1:8080/widget/widget.js?v=4"
     data-server="http://127.0.0.1:8080"
     data-title="Support"
     data-welcome="Hi! How can I help you?"

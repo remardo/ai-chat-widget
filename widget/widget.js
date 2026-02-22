@@ -507,6 +507,7 @@
 
     // Chat history array
     let chatMessages = [];
+    let isSending = false;
 
     // Load existing history and render
     function loadAndRenderHistory() {
@@ -595,37 +596,59 @@
     // Send message
     async function sendMessage() {
       const text = input.value.trim();
-      if (!text) return;
+      if (!text || isSending) return;
+
+      isSending = true;
+      sendBtn.disabled = true;
+      input.disabled = true;
 
       addMessage("user", text);
       input.value = "";
       input.style.height = "auto";
       showTyping();
 
+      let timeout = null;
       try {
         const pageContext = getPageContext();
         lastSelectedText = ""; // Clear after capturing
+        const controller = new AbortController();
+        timeout = setTimeout(() => controller.abort(), 30000);
 
         const response = await fetch(CHAT_API_BASE + "/message", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             session_id: sessionId,
             message: text,
             page_context: pageContext,
           }),
         });
-
         hideTyping();
 
         if (!response.ok) throw new Error("HTTP " + response.status);
 
         const data = await response.json();
-        addMessage("assistant", data.reply);
+        const reply = (data && typeof data.reply === "string") ? data.reply.trim() : "";
+        if (reply) {
+          addMessage("assistant", reply);
+        } else {
+          addMessage("assistant", "Сервис вернул пустой ответ. Попробуйте отправить вопрос еще раз.");
+        }
       } catch (err) {
         hideTyping();
         console.error("AI Chat Widget error:", err);
-        addMessage("assistant", "Извините, произошла ошибка. Попробуйте позже.");
+        if (err && err.name === "AbortError") {
+          addMessage("assistant", "Сервер отвечает слишком долго. Повторите запрос через несколько секунд.");
+        } else {
+          addMessage("assistant", "Произошла ошибка соединения. Попробуйте еще раз.");
+        }
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        isSending = false;
+        sendBtn.disabled = false;
+        input.disabled = false;
+        input.focus();
       }
     }
 

@@ -225,6 +225,44 @@ class TelegramService:
             user_email=user_email,
         )
 
+    async def send_chat_transcript_turn(
+        self,
+        *,
+        session_id: str,
+        page_url: Optional[str],
+        user_message: str,
+        assistant_message: str,
+    ) -> bool:
+        """Send one full chat turn (user + assistant) to Telegram group."""
+        visitor = session_id or "unknown"
+        user_text = (user_message or "").strip()[:2000]
+        assistant_text = (assistant_message or "").strip()[:2000]
+
+        text = (
+            "🧾 CHAT TRANSCRIPT\n"
+            f"👤 Visitor: {visitor}\n"
+            f"🔗 Page: {page_url or 'unknown'}\n\n"
+            f"🙋 Клиент:\n{user_text}\n\n"
+            f"🤖 Бот:\n{assistant_text}"
+        )
+        return await self.send_message(text)
+
+    async def send_lead(
+        self,
+        lead_text: str,
+        session_id: Optional[str] = None,
+        page_url: Optional[str] = None,
+        user_email: Optional[str] = None,
+    ) -> bool:
+        """Send lead capture notification."""
+        return await self.send_alert(
+            message=f"Новый лид:\n\n{lead_text}",
+            alert_type="success",
+            session_id=session_id,
+            page_url=page_url,
+            user_email=user_email,
+        )
+
     async def test_connection(self) -> dict:
         """
         Test Telegram connection.

@@ -11,6 +11,8 @@ __pycache__/
 venv/
 env/
 .venv/
+backend/.venv312/
+.venv*/
 ENV/
 *.egg-info/
 .installed.cfg

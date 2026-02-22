@@ -28,7 +28,15 @@ else:
     raise ValueError(f"Invalid STORAGE_TYPE: {settings.STORAGE_TYPE}")
 
 # Load knowledge base
-knowledge_base = KnowledgeBase(settings.KNOWLEDGE_PATH)
+knowledge_base = KnowledgeBase(
+    settings.KNOWLEDGE_PATH,
+    enable_rag=settings.ENABLE_RAG,
+    top_k=settings.RAG_TOP_K,
+    chunk_size=settings.RAG_CHUNK_SIZE,
+    chunk_overlap=settings.RAG_CHUNK_OVERLAP,
+    embedding_model=settings.RAG_EMBEDDING_MODEL,
+    fallback_max_chars=settings.RAG_FALLBACK_MAX_CHARS,
+)
 
 # Create FastAPI app
 app = FastAPI(

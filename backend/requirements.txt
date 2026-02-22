@@ -5,6 +5,11 @@ pydantic==2.10.3
 pydantic-settings==2.6.1
 python-multipart==0.0.19
 
+# Vector search dependencies
+zvec ; python_version < "3.13" and platform_system != "Windows"
+sentence-transformers>=3.4.1 ; python_version < "3.13"
+torch>=2.0.0 ; python_version < "3.13"
+
 # Optional: SQLite async support
 aiosqlite==0.20.0
 

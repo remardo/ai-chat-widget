@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Telegram Alerts (optional)
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
+    TELEGRAM_TRANSCRIPT_ENABLED: bool = True
 
     # Server
     PORT: int = 8080
@@ -41,6 +42,14 @@ class Settings(BaseSettings):
     # Paths (can be overridden via env for Docker)
     KNOWLEDGE_PATH: Optional[str] = None
     DATA_PATH: Optional[str] = None
+
+    # RAG / vector search
+    ENABLE_RAG: bool = True
+    RAG_TOP_K: int = 5
+    RAG_CHUNK_SIZE: int = 900
+    RAG_CHUNK_OVERLAP: int = 120
+    RAG_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    RAG_FALLBACK_MAX_CHARS: int = 12000
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

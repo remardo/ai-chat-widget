@@ -47,6 +47,11 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
+Примечание по RAG (`zvec`):
+- Полноценный `zvec` режим официально поддерживается на Linux/macOS (Python 3.10-3.12).
+- На Windows локально backend работает с fallback-режимом без `zvec`.
+- Для полноценного RAG на Windows используйте Docker (контейнер Linux).
+
 ### 4. Добавьте на сайт
 
 ```html
