@@ -6,6 +6,8 @@ import hashlib
 import math
 import os
 import re
+import subprocess
+import sys
 from typing import Callable, Dict, List, Optional, Sequence
 
 
@@ -40,6 +42,8 @@ class KnowledgeBase:
         self._collection = None
         self._embed_fn: Optional[Callable[[Sequence[str]], Sequence[Sequence[float]]]] = None
         self._index_attempted = False
+        self._zvec_checked = False
+        self._zvec_supported = False
 
         self._load()
 
@@ -122,6 +126,13 @@ class KnowledgeBase:
         if not self._documents:
             return
 
+        if not self._zvec_checked:
+            self._zvec_supported = self._probe_zvec_runtime()
+            self._zvec_checked = True
+        if not self._zvec_supported:
+            print("zvec runtime probe failed, using text fallback")
+            return
+
         try:
             import zvec
         except Exception as e:
@@ -163,6 +174,34 @@ class KnowledgeBase:
         except Exception as e:
             self._collection = None
             print(f"Warning: Failed to initialize zvec index, using fallback: {e}")
+
+    def _probe_zvec_runtime(self) -> bool:
+        """
+        Probe zvec in a separate process to avoid crashing the API process
+        on incompatible CPU/instruction-set issues.
+        """
+        probe_code = (
+            "import zvec\n"
+            "c=zvec.create('probe', dimensions=8, embedding_fn=lambda xs:[[0.0]*8 for _ in xs], "
+            "fields={'content':'str'}, metric='cosine')\n"
+            "c.upsert(ids=['1'], docs=['test'], fields=[{'content':'test'}])\n"
+            "print('ok')\n"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", probe_code],
+                capture_output=True,
+                text=True,
+                timeout=25,
+            )
+            if result.returncode == 0 and "ok" in result.stdout:
+                return True
+            err = (result.stderr or result.stdout or "").strip()
+            print(f"Warning: zvec probe failed (code={result.returncode}): {err}")
+            return False
+        except Exception as e:
+            print(f"Warning: zvec probe exception: {e}")
+            return False
 
     def _load(self):
         """Load all knowledge files and rebuild index."""

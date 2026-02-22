@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 900
     RAG_CHUNK_OVERLAP: int = 120
     RAG_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    RAG_USE_ZVEC: bool = False
+    RAG_USE_ZVEC: bool = True
     RAG_FALLBACK_MAX_CHARS: int = 12000
 
     def __init__(self, **kwargs):
