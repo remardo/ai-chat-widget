@@ -37,6 +37,7 @@
   const TITLE = getAttr("title", "AI Assistant");
   const GREETING = getAttr("greeting", getAttr("welcome", "Привет! 👋 Чем могу помочь?"));
   const INPUT_PLACEHOLDER = getAttr("placeholder", "Напишите сообщение...");
+  const RESET_KEY = getAttr("reset-key", "");
 
   // Page filtering (include/exclude)
   // Use data-include="/path1,/path2" or data-exclude="/admin,/checkout"
@@ -349,10 +350,32 @@
   // SESSION & PAGE CONTEXT
   // ============================================
 
-  let sessionId = localStorage.getItem("ai_chat_session_id");
+  const SESSION_KEY = "ai_chat_session_id";
+  const RESET_STORAGE_KEY = "ai_chat_reset_key";
+
+  function clearLocalChatState() {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("ai_chat_history_"))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch (e) {
+      console.warn("AI Chat: Could not clear local chat state", e);
+    }
+  }
+
+  if (RESET_KEY) {
+    const previousResetKey = localStorage.getItem(RESET_STORAGE_KEY);
+    if (previousResetKey !== RESET_KEY) {
+      clearLocalChatState();
+      localStorage.setItem(RESET_STORAGE_KEY, RESET_KEY);
+    }
+  }
+
+  let sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
     sessionId = "s_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem("ai_chat_session_id", sessionId);
+    localStorage.setItem(SESSION_KEY, sessionId);
   }
 
   // ============================================
