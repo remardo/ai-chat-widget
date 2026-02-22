@@ -9,6 +9,7 @@ RUN apt-get update \
 
 # Install dependencies
 COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
