@@ -22,6 +22,7 @@ class KnowledgeBase:
         chunk_overlap: int = 120,
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         use_transformer_embeddings: bool = False,
+        use_zvec: bool = False,
         fallback_max_chars: int = 12000,
     ):
         self.knowledge_path = knowledge_path
@@ -31,6 +32,7 @@ class KnowledgeBase:
         self.chunk_overlap = max(0, min(chunk_overlap, self.chunk_size // 2))
         self.embedding_model = embedding_model
         self.use_transformer_embeddings = use_transformer_embeddings
+        self.use_zvec = use_zvec
         self.fallback_max_chars = max(1500, fallback_max_chars)
 
         self.content = ""
@@ -113,6 +115,9 @@ class KnowledgeBase:
         """Build zvec index from chunked documents."""
         self._index_attempted = True
         if not self.enable_rag:
+            return
+        if not self.use_zvec:
+            print("RAG vector index disabled (RAG_USE_ZVEC=false), using text fallback")
             return
         if not self._documents:
             return

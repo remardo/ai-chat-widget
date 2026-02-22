@@ -35,6 +35,7 @@ knowledge_base = KnowledgeBase(
     chunk_size=settings.RAG_CHUNK_SIZE,
     chunk_overlap=settings.RAG_CHUNK_OVERLAP,
     embedding_model=settings.RAG_EMBEDDING_MODEL,
+    use_zvec=settings.RAG_USE_ZVEC,
     fallback_max_chars=settings.RAG_FALLBACK_MAX_CHARS,
 )
 
