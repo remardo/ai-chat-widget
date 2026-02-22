@@ -33,6 +33,7 @@ class KnowledgeBase:
         self._documents: List[Dict[str, str]] = []
         self._collection = None
         self._embed_fn: Optional[Callable[[Sequence[str]], Sequence[Sequence[float]]]] = None
+        self._index_attempted = False
 
         self._load()
 
@@ -82,6 +83,7 @@ class KnowledgeBase:
 
     def _build_vector_index(self):
         """Build zvec index from chunked documents."""
+        self._index_attempted = True
         if not self.enable_rag:
             return
         if not self._documents:
@@ -134,6 +136,7 @@ class KnowledgeBase:
         self.content = ""
         self._documents = []
         self._collection = None
+        self._index_attempted = False
 
         if not os.path.exists(self.knowledge_path):
             print(f"Warning: Knowledge path does not exist: {self.knowledge_path}")
@@ -157,7 +160,7 @@ class KnowledgeBase:
         else:
             print("No knowledge documents found")
 
-        self._build_vector_index()
+        # Defer vector index build to first relevant query.
 
     def get_content(self) -> str:
         """Get full knowledge content."""
@@ -191,6 +194,12 @@ class KnowledgeBase:
                     return "\n\n---\n\n".join(snippets)
             except Exception as e:
                 print(f"Warning: zvec query failed, using fallback: {e}")
+
+        # Lazy index build to keep API startup fast and healthcheck-friendly.
+        if not self._index_attempted and self.enable_rag and self._documents:
+            self._build_vector_index()
+            if self._collection is not None:
+                return self.get_context_for_query(query, top_k=k)
 
         return self.get_content()[: self.fallback_max_chars]
 
