@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     PORT: int = 8080
     DEBUG: bool = False
     CORS_ORIGINS: str = "*"
+    CORS_ORIGIN: Optional[str] = None
 
     # Paths (can be overridden via env for Docker)
     KNOWLEDGE_PATH: Optional[str] = None
@@ -67,6 +68,10 @@ class Settings(BaseSettings):
                 self.DATA_PATH = "/app/data"
             else:
                 self.DATA_PATH = str(PROJECT_ROOT / "data")
+
+        # Backward compatibility for single-origin env name used in some deploy setups.
+        if self.CORS_ORIGIN and (not self.CORS_ORIGINS or self.CORS_ORIGINS == "*"):
+            self.CORS_ORIGINS = self.CORS_ORIGIN
 
     class Config:
         env_file = str(BASE_DIR / ".env")  # Use absolute path
