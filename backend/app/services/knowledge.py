@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
+import re
 from typing import Callable, Dict, List, Optional, Sequence
 
 
@@ -19,6 +21,7 @@ class KnowledgeBase:
         chunk_size: int = 900,
         chunk_overlap: int = 120,
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        use_transformer_embeddings: bool = False,
         fallback_max_chars: int = 12000,
     ):
         self.knowledge_path = knowledge_path
@@ -27,6 +30,7 @@ class KnowledgeBase:
         self.chunk_size = max(200, chunk_size)
         self.chunk_overlap = max(0, min(chunk_overlap, self.chunk_size // 2))
         self.embedding_model = embedding_model
+        self.use_transformer_embeddings = use_transformer_embeddings
         self.fallback_max_chars = max(1500, fallback_max_chars)
 
         self.content = ""
@@ -36,6 +40,25 @@ class KnowledgeBase:
         self._index_attempted = False
 
         self._load()
+
+    @staticmethod
+    def _hash_embed(texts: Sequence[str], dim: int = 384) -> Sequence[Sequence[float]]:
+        """
+        Lightweight deterministic embedding without external models.
+        Prevents runtime OOM/model-download failures on small servers.
+        """
+        vectors: List[List[float]] = []
+        for text in texts:
+            vec = [0.0] * dim
+            for token in re.findall(r"\w+", (text or "").lower()):
+                idx = int(hashlib.sha1(token.encode("utf-8")).hexdigest(), 16) % dim
+                vec[idx] += 1.0
+
+            norm = math.sqrt(sum(v * v for v in vec))
+            if norm > 0:
+                vec = [v / norm for v in vec]
+            vectors.append(vec)
+        return vectors
 
     def _iter_knowledge_files(self):
         """Yield supported knowledge file paths."""
@@ -68,16 +91,21 @@ class KnowledgeBase:
         if self._embed_fn is not None:
             return
 
+        if not self.use_transformer_embeddings:
+            self._embed_fn = self._hash_embed
+            return
+
         try:
             from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(self.embedding_model)
+
+            def _embed(texts: Sequence[str]):
+                vectors = model.encode(list(texts), normalize_embeddings=True)
+                return vectors.tolist()
         except Exception as e:
-            raise RuntimeError(f"sentence-transformers unavailable: {e}") from e
-
-        model = SentenceTransformer(self.embedding_model)
-
-        def _embed(texts: Sequence[str]):
-            vectors = model.encode(list(texts), normalize_embeddings=True)
-            return vectors.tolist()
+            print(f"Warning: sentence-transformers unavailable, using hash embeddings: {e}")
+            self._embed_fn = self._hash_embed
+            return
 
         self._embed_fn = _embed
 
