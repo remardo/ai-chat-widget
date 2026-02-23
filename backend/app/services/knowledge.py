@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 
 class KnowledgeBase:
@@ -41,6 +41,7 @@ class KnowledgeBase:
         self._documents: List[Dict[str, str]] = []
         self._collection = None
         self._embed_fn: Optional[Callable[[Sequence[str]], Sequence[Sequence[float]]]] = None
+        self._fallback_chunks: List[Dict[str, Any]] = []
         self._index_attempted = False
         self._zvec_checked = False
         self._zvec_supported = False
@@ -175,6 +176,56 @@ class KnowledgeBase:
             self._collection = None
             print(f"Warning: Failed to initialize zvec index, using fallback: {e}")
 
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        return [t for t in re.findall(r"[a-zA-Zа-яА-Я0-9_-]{2,}", (text or "").lower()) if len(t) > 1]
+
+    def _build_fallback_chunks(self):
+        """Prepare chunk cache for lexical fallback retrieval."""
+        self._fallback_chunks = []
+        for doc in self._documents:
+            source = doc["source"]
+            chunks = self._make_chunks(doc["content"])
+            for idx, chunk in enumerate(chunks):
+                self._fallback_chunks.append(
+                    {
+                        "source": source,
+                        "content": chunk,
+                        "chunk_index": idx,
+                        "tokens": set(self._tokenize(chunk)),
+                    }
+                )
+
+    def _fallback_context_for_query(self, query: str, k: int) -> str:
+        """Token-overlap retrieval used when vector index is unavailable."""
+        if not self._fallback_chunks:
+            return self.get_content()[: self.fallback_max_chars]
+
+        query_tokens = set(self._tokenize(query))
+        if not query_tokens:
+            # Prefer diverse documents for generic queries.
+            selected = self._fallback_chunks[:k]
+        else:
+            scored: List[tuple[int, int, Dict[str, Any]]] = []
+            for chunk in self._fallback_chunks:
+                overlap = len(query_tokens.intersection(chunk["tokens"]))
+                if overlap <= 0:
+                    continue
+                scored.append((overlap, -chunk["chunk_index"], chunk))
+
+            if not scored:
+                selected = self._fallback_chunks[:k]
+            else:
+                scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                selected = [item[2] for item in scored[:k]]
+
+        snippets: List[str] = []
+        for chunk in selected:
+            snippets.append(
+                f"[source: {chunk['source']}, mode: lexical]\n{chunk['content']}"
+            )
+        return "\n\n---\n\n".join(snippets)
+
     def _probe_zvec_runtime(self) -> bool:
         """
         Probe zvec in a separate process to avoid crashing the API process
@@ -208,6 +259,7 @@ class KnowledgeBase:
         self.content = ""
         self._documents = []
         self._collection = None
+        self._fallback_chunks = []
         self._index_attempted = False
 
         if not os.path.exists(self.knowledge_path):
@@ -231,6 +283,8 @@ class KnowledgeBase:
             print(f"Loaded {len(rendered_documents)} knowledge documents")
         else:
             print("No knowledge documents found")
+
+        self._build_fallback_chunks()
 
         # Defer vector index build to first relevant query.
 
@@ -273,7 +327,7 @@ class KnowledgeBase:
             if self._collection is not None:
                 return self.get_context_for_query(query, top_k=k)
 
-        return self.get_content()[: self.fallback_max_chars]
+        return self._fallback_context_for_query(query, k)
 
     def reload(self):
         """Reload knowledge base and rebuild vector index."""
