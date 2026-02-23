@@ -546,3 +546,15 @@ async def supabase_status():
         return await supabase_catalog_service.check_connection()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/knowledge/reload")
+async def reload_knowledge():
+    """Reload markdown knowledge files and rebuild retrieval index/fallback state."""
+    from ..main import knowledge_base
+
+    try:
+        knowledge_base.reload()
+        return {"message": "Knowledge reloaded"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

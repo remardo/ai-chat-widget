@@ -160,6 +160,28 @@ knowledge/
 
 Бот будет использовать эту информацию для ответов.
 
+### Автообновление из Supabase
+
+Если цены/акции/карточки дверей часто меняются, можно синхронизировать их в markdown-файл базы знаний:
+
+```bash
+cd backend
+python scripts/sync_supabase_knowledge.py \
+  --output ../knowledge/supabase-live-rag.md \
+  --reload-url http://127.0.0.1:8080/api/chat/knowledge/reload
+```
+
+Скрипт:
+- читает таблицы `SUPABASE_TABLE_DOORS`, `SUPABASE_TABLE_PROMOTIONS`, `SUPABASE_TABLE_COMPANY`,
+- обновляет файл `knowledge/supabase-live-rag.md`,
+- (опционально) дергает endpoint перезагрузки знаний без рестарта сервиса.
+
+Для cron (каждые 30 минут):
+
+```cron
+*/30 * * * * cd /opt/ai-chat-widget/backend && /opt/ai-chat-widget/backend/venv/bin/python scripts/sync_supabase_knowledge.py --output ../knowledge/supabase-live-rag.md --reload-url http://127.0.0.1:8080/api/chat/knowledge/reload >> /var/log/ai-chat-sync.log 2>&1
+```
+
 ## Telegram уведомления
 
 Получайте уведомления когда пользователь:
