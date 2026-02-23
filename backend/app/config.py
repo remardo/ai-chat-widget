@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     STORAGE_TYPE: str = "json"  # json, sqlite, postgres
     DATABASE_URL: Optional[str] = None
 
+    # Supabase live data (optional)
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+    SUPABASE_TABLE_DOORS: str = "doors"
+    SUPABASE_TABLE_PROMOTIONS: str = "promotions"
+    SUPABASE_TABLE_COMPANY: str = "company_info"
+    SUPABASE_CONTEXT_MAX_ITEMS: int = 5
+    SUPABASE_CACHE_TTL_SECONDS: int = 120
+    SUPABASE_TIMEOUT_SECONDS: int = 20
+
     # Telegram Alerts (optional)
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None

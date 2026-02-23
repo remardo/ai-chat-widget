@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Dict, Optional, List
 from ..services.storage.base import Message
 from ..services.ai_service import ai_service
+from ..services.supabase_catalog import supabase_catalog_service
 from ..services.telegram import telegram_service
 from ..services.security import security_service
 from ..config import settings
@@ -316,9 +317,11 @@ async def send_message(request: ChatRequest):
 
         # Build system prompt with retrieved knowledge context
         knowledge_context = knowledge_base.get_context_for_query(request.message)
+        live_data_context = await supabase_catalog_service.get_live_context(request.message)
         system_prompt = ai_service.build_system_prompt(
             page_context=page_context_dict,
             knowledge_base=knowledge_context,
+            live_data=live_data_context,
         )
 
         # Prepare messages for AI
@@ -534,3 +537,12 @@ async def security_status():
         "max_strikes": security_service.max_strikes,
         "active_bans": len(security_service._banned_sessions),
     }
+
+
+@router.get("/supabase/status")
+async def supabase_status():
+    """Get Supabase live-data integration status."""
+    try:
+        return await supabase_catalog_service.check_connection()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

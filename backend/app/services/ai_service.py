@@ -20,6 +20,9 @@ DEFAULT_SYSTEM_PROMPT = """Ты AI-ассистент на сайте.
 БАЗА ЗНАНИЙ:
 {knowledge_base}
 
+АКТУАЛЬНЫЕ ДАННЫЕ ИЗ БД:
+{live_data}
+
 ПРАВИЛА:
 1. Отвечай кратко и по делу (2-4 предложения)
 2. Используй контекст страницы для релевантных ответов
@@ -261,7 +264,7 @@ class AIService:
         except Exception as e:
             raise Exception(f"AI request failed: {str(e)}")
 
-    def build_system_prompt(self, page_context: Dict, knowledge_base: str) -> str:
+    def build_system_prompt(self, page_context: Dict, knowledge_base: str, live_data: str = "") -> str:
         """Build system prompt with page context and knowledge base."""
         template = self._load_system_prompt_template()
 
@@ -289,6 +292,10 @@ class AIService:
         if selected_text:
             selected_text_formatted = f"- Выделенный текст: {selected_text}"
 
+        # If custom prompt template doesn't support live data, append it.
+        if "{live_data}" not in template:
+            template = template + "\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ БД:\n{live_data}"
+
         # Replace placeholders
         prompt = template.format(
             page_url=url,
@@ -297,6 +304,7 @@ class AIService:
             page_headings=headings_text,
             selected_text=selected_text_formatted,
             knowledge_base=knowledge_base or "База знаний не загружена.",
+            live_data=live_data or "Нет live-данных из CRM/Supabase.",
         )
 
         return prompt
