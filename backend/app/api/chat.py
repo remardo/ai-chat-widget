@@ -51,12 +51,26 @@ def _build_safe_contact_reply(knowledge_text: str) -> Optional[str]:
         return None
 
     phone_match = re.search(r"Телефон:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
-    address_match = re.search(r"Адрес\s+шоурума:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
-    if not phone_match and not address_match:
+    sales_match = re.search(r"Адрес\s+салона\s+продаж.*?:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
+    factory_match = re.search(r"Адрес\s+шоурума\s+на\s+фабрике:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
+    legacy_match = re.search(r"Адрес\s+шоурума:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
+
+    if not phone_match and not sales_match and not factory_match and not legacy_match:
         return None
 
     phone = phone_match.group(1).strip() if phone_match else "уточняйте у менеджера"
-    address = address_match.group(1).strip() if address_match else "уточняйте у менеджера"
+    sales_address = sales_match.group(1).strip() if sales_match else ""
+    factory_address = factory_match.group(1).strip() if factory_match else ""
+
+    # Backward compatibility: split old merged address into two known points.
+    if (not sales_address or not factory_address) and legacy_match:
+        merged = legacy_match.group(1).strip()
+        if "Дорожный проезд" in merged:
+            sales_address = sales_address or "Чебоксары, Московский проспект, 40Б, павильон 20"
+            factory_address = factory_address or "Чебоксары, Дорожный проезд, 6Б"
+        else:
+            sales_address = sales_address or merged
+            factory_address = factory_address or ""
 
     schedule_lines = re.findall(
         r"^\s*-\s*(Понедельник[^\n\r]*|Суббота[^\n\r]*|Воскресенье[^\n\r]*)",
@@ -65,7 +79,19 @@ def _build_safe_contact_reply(knowledge_text: str) -> Optional[str]:
     )
     schedule = ", ".join(line.strip() for line in schedule_lines[:3]) if schedule_lines else ""
 
-    reply = f"Наш шоурум: {address}. Телефон: {phone}."
+    points = []
+    if sales_address:
+        points.append(f"Салон продаж (Северная Ярмарка): {sales_address}")
+    if factory_address:
+        points.append(f"Шоурум на фабрике: {factory_address}")
+
+    if not points:
+        points.append("Адреса уточняйте у менеджера")
+
+    reply = "Можно посмотреть двери в двух точках: " + " ".join(
+        [f"{idx + 1}) {p}." for idx, p in enumerate(points)]
+    )
+    reply += f" Телефон: {phone}."
     if schedule:
         reply += f" График: {schedule}."
     return reply
@@ -382,8 +408,17 @@ async def send_message(request: ChatRequest):
         for msg in history:
             messages.append({"role": msg.role, "content": msg.content})
 
-        # Get AI response
+        # Get AI response (guard against provider returning empty content)
         ai_reply = await ai_service.chat_completion(messages)
+        if not (ai_reply or "").strip():
+            logger.warning("AI provider returned empty content, retrying once")
+            ai_reply = await ai_service.chat_completion(messages)
+        if not (ai_reply or "").strip():
+            ai_reply = (
+                "Не удалось получить полный ответ от AI-сервиса. "
+                "Скажите, пожалуйста, какой именно диапазон цены вам нужен, "
+                "и я сразу дам конкретные варианты."
+            )
 
         # Save AI response
         assistant_message = Message(
