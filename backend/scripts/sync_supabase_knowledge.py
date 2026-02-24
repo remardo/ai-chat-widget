@@ -29,6 +29,16 @@ def normalize_rest_url(url: str) -> str:
     return u + "/rest/v1"
 
 
+def apply_prefix(table: str, prefix: str) -> str:
+    name = (table or "").strip()
+    pref = (prefix or "").strip()
+    if not name:
+        return ""
+    if pref and not name.startswith(pref):
+        return f"{pref}{name}"
+    return name
+
+
 def fetch_table(
     client: httpx.Client,
     rest_base: str,
@@ -171,9 +181,10 @@ def main() -> int:
 
     supabase_url = getenv("SUPABASE_URL")
     supabase_key = getenv("SUPABASE_SERVICE_ROLE_KEY")
-    table_doors = getenv("SUPABASE_TABLE_DOORS", "doors")
-    table_promos = getenv("SUPABASE_TABLE_PROMOTIONS", "promotions")
-    table_company = getenv("SUPABASE_TABLE_COMPANY", "company_info")
+    table_prefix = getenv("SUPABASE_TABLE_PREFIX", "aftora_")
+    table_doors = apply_prefix(getenv("SUPABASE_TABLE_DOORS", "aftora_doors"), table_prefix)
+    table_promos = apply_prefix(getenv("SUPABASE_TABLE_PROMOTIONS", ""), table_prefix)
+    table_company = apply_prefix(getenv("SUPABASE_TABLE_COMPANY", ""), table_prefix)
 
     if not supabase_url or not supabase_key:
         raise SystemExit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
@@ -221,4 +232,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

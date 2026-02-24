@@ -18,6 +18,7 @@ class KnowledgeBase:
         self,
         knowledge_path: str,
         *,
+        include_live_supabase_knowledge: bool = True,
         enable_rag: bool = True,
         top_k: int = 5,
         chunk_size: int = 900,
@@ -28,6 +29,7 @@ class KnowledgeBase:
         fallback_max_chars: int = 12000,
     ):
         self.knowledge_path = knowledge_path
+        self.include_live_supabase_knowledge = include_live_supabase_knowledge
         self.enable_rag = enable_rag
         self.top_k = max(1, top_k)
         self.chunk_size = max(200, chunk_size)
@@ -71,6 +73,8 @@ class KnowledgeBase:
         """Yield supported knowledge file paths."""
         for root, _dirs, files in os.walk(self.knowledge_path):
             for filename in files:
+                if (not self.include_live_supabase_knowledge) and filename == "supabase-live-rag.md":
+                    continue
                 if filename.endswith((".md", ".txt")):
                     yield os.path.join(root, filename)
 

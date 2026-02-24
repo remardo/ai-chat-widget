@@ -21,14 +21,23 @@ class SupabaseCatalogService:
     def __init__(self) -> None:
         self.url = (settings.SUPABASE_URL or "").rstrip("/")
         self.key = settings.SUPABASE_SERVICE_ROLE_KEY or ""
-        self.table_doors = settings.SUPABASE_TABLE_DOORS
-        self.table_promotions = settings.SUPABASE_TABLE_PROMOTIONS
-        self.table_company = settings.SUPABASE_TABLE_COMPANY
+        self.table_prefix = (settings.SUPABASE_TABLE_PREFIX or "").strip()
+        self.table_doors = self._table_with_prefix(settings.SUPABASE_TABLE_DOORS)
+        self.table_promotions = self._table_with_prefix(settings.SUPABASE_TABLE_PROMOTIONS)
+        self.table_company = self._table_with_prefix(settings.SUPABASE_TABLE_COMPANY)
         self.enabled = bool(self.url and self.key)
         self.max_items = max(1, settings.SUPABASE_CONTEXT_MAX_ITEMS)
         self.cache_ttl = max(10, settings.SUPABASE_CACHE_TTL_SECONDS)
         self.timeout = max(5, settings.SUPABASE_TIMEOUT_SECONDS)
         self._cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
+    def _table_with_prefix(self, table: str) -> str:
+        name = (table or "").strip()
+        if not name:
+            return ""
+        if self.table_prefix and not name.startswith(self.table_prefix):
+            return f"{self.table_prefix}{name}"
+        return name
 
     @property
     def rest_base(self) -> str:
@@ -44,6 +53,8 @@ class SupabaseCatalogService:
         }
 
     async def _fetch_table(self, table: str, limit: int) -> List[Dict[str, Any]]:
+        if not table:
+            return []
         if not self.enabled:
             return []
 
@@ -176,6 +187,8 @@ class SupabaseCatalogService:
         return {
             "enabled": True,
             "rest_base": self.rest_base,
+            "table_doors": self.table_doors,
+            "table_promotions": self.table_promotions,
             "table_company": self.table_company,
             "company_rows_probe": len(rows),
         }

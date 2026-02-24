@@ -30,6 +30,7 @@ else:
 # Load knowledge base
 knowledge_base = KnowledgeBase(
     settings.KNOWLEDGE_PATH,
+    include_live_supabase_knowledge=bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY),
     enable_rag=settings.ENABLE_RAG,
     top_k=settings.RAG_TOP_K,
     chunk_size=settings.RAG_CHUNK_SIZE,

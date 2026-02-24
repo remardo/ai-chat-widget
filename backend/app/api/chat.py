@@ -25,6 +25,10 @@ lead_notified_sessions = set()
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\-\s\(\)]{8,}\d)")
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+CONTACT_INTENT_RE = re.compile(
+    r"(адрес|шоурум|шоу-рум|офис|где\s+наход|где\s+располож|контакт|телефон)",
+    re.IGNORECASE,
+)
 
 UNCERTAIN_REPLY_PATTERNS = [
     "у меня нет информации",
@@ -39,6 +43,32 @@ def _extract_lead(text: str) -> Dict[str, List[str]]:
     phones = [p.strip() for p in PHONE_RE.findall(text or "")]
     emails = [e.strip() for e in EMAIL_RE.findall(text or "")]
     return {"phones": phones, "emails": emails}
+
+
+def _build_safe_contact_reply(knowledge_text: str) -> Optional[str]:
+    """Build deterministic contact reply from knowledge markdown."""
+    if not knowledge_text:
+        return None
+
+    phone_match = re.search(r"Телефон:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
+    address_match = re.search(r"Адрес\s+шоурума:\s*([^\n\r]+)", knowledge_text, re.IGNORECASE)
+    if not phone_match and not address_match:
+        return None
+
+    phone = phone_match.group(1).strip() if phone_match else "уточняйте у менеджера"
+    address = address_match.group(1).strip() if address_match else "уточняйте у менеджера"
+
+    schedule_lines = re.findall(
+        r"^\s*-\s*(Понедельник[^\n\r]*|Суббота[^\n\r]*|Воскресенье[^\n\r]*)",
+        knowledge_text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    schedule = ", ".join(line.strip() for line in schedule_lines[:3]) if schedule_lines else ""
+
+    reply = f"Наш шоурум: {address}. Телефон: {phone}."
+    if schedule:
+        reply += f" График: {schedule}."
+    return reply
 
 
 def _needs_manager_handoff(ai_reply: str) -> bool:
@@ -318,6 +348,27 @@ async def send_message(request: ChatRequest):
         # Build system prompt with retrieved knowledge context
         knowledge_context = knowledge_base.get_context_for_query(request.message)
         live_data_context = await supabase_catalog_service.get_live_context(request.message)
+
+        # Deterministic contacts/addresses response to avoid LLM hallucinations.
+        if CONTACT_INTENT_RE.search(request.message):
+            safe_reply = _build_safe_contact_reply(knowledge_base.get_content())
+            if safe_reply:
+                assistant_message = Message(
+                    session_id=request.session_id, role="assistant", content=safe_reply, page_context=page_context_dict
+                )
+                await storage.save_message(assistant_message)
+                if settings.TELEGRAM_TRANSCRIPT_ENABLED:
+                    _run_in_background(
+                        telegram_service.send_chat_transcript_turn(
+                            session_id=request.session_id,
+                            page_url=page_url,
+                            user_message=request.message,
+                            assistant_message=safe_reply,
+                        ),
+                        "chat_transcript_turn_contacts",
+                    )
+                return ChatResponse(reply=safe_reply, session_id=request.session_id, manager_handoff=False)
+
         system_prompt = ai_service.build_system_prompt(
             page_context=page_context_dict,
             knowledge_base=knowledge_context,

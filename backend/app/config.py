@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     # Supabase live data (optional)
     SUPABASE_URL: Optional[str] = None
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
-    SUPABASE_TABLE_DOORS: str = "doors"
-    SUPABASE_TABLE_PROMOTIONS: str = "promotions"
-    SUPABASE_TABLE_COMPANY: str = "company_info"
+    SUPABASE_TABLE_PREFIX: str = "aftora_"
+    SUPABASE_TABLE_DOORS: str = "aftora_doors"
+    SUPABASE_TABLE_PROMOTIONS: str = ""
+    SUPABASE_TABLE_COMPANY: str = ""
     SUPABASE_CONTEXT_MAX_ITEMS: int = 5
     SUPABASE_CACHE_TTL_SECONDS: int = 120
     SUPABASE_TIMEOUT_SECONDS: int = 20

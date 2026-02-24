@@ -172,7 +172,7 @@ python scripts/sync_supabase_knowledge.py \
 ```
 
 Скрипт:
-- читает таблицы `SUPABASE_TABLE_DOORS`, `SUPABASE_TABLE_PROMOTIONS`, `SUPABASE_TABLE_COMPANY`,
+- читает таблицы `SUPABASE_TABLE_DOORS`, `SUPABASE_TABLE_PROMOTIONS`, `SUPABASE_TABLE_COMPANY` (с учетом `SUPABASE_TABLE_PREFIX`, например `aftora_`),
 - обновляет файл `knowledge/supabase-live-rag.md`,
 - (опционально) дергает endpoint перезагрузки знаний без рестарта сервиса.
 
